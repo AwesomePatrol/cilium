@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/go-openapi/strfmt"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/sirupsen/logrus"
@@ -87,7 +88,65 @@ func (d *Daemon) getHubbleStatus(ctx context.Context) *models.HubbleStatus {
 	return hubbleStatus
 }
 
+func (d *Daemon) watchHubbleConfig() {
+	logger := logging.DefaultLogger.WithField(logfields.LogSubsys, "hubble-watcher")
+	logger.Info("Starting watching Hubble config")
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logger.Errorf("failed to start watcher: %v", err)
+		return
+	}
+	defer watcher.Close()
+
+	err = watcher.Add(option.Config.ConfigDir)
+	if err != nil {
+		logger.Errorf("failed to add path to watcher: %v", err)
+		return
+	}
+
+	for {
+		var event fsnotify.Event
+		select {
+		case <-d.ctx.Done():
+			logger.Info("Stopping watching Hubble config")
+			return
+		case event = <-watcher.Events:
+			logger.Debugf("Got event: %v", event)
+		}
+		// TODO: rebuild config and compare old with new
+		if event.Op != fsnotify.Remove {
+			continue
+		}
+		logger.Info("Noticed changed to hubble config. Reloading...")
+		d.reloadHubble()
+		logger.Info("Finished reloading hubble after changes to config")
+	}
+}
+
 func (d *Daemon) launchHubble() {
+	ctx, cancel := context.WithCancel(d.ctx)
+	d._launchHubble(ctx)
+
+	d.cancelHubble = cancel
+	if d.syncCancelHubble == nil {
+		d.syncCancelHubble = make(chan struct{})
+	}
+}
+
+func (d *Daemon) reloadHubble() {
+	d.cancelHubble()
+	<-d.syncCancelHubble
+	if option.Config.EnableRecorder && option.Config.EnableHubbleRecorderAPI {
+		<-d.syncCancelHubble
+	}
+	if option.Config.HubbleListenAddress != "" {
+		<-d.syncCancelHubble
+	}
+
+	d.launchHubble()
+}
+
+func (d *Daemon) _launchHubble(ctx context.Context) {
 	logger := logging.DefaultLogger.WithField(logfields.LogSubsys, "hubble")
 	if !option.Config.EnableHubble {
 		logger.Info("Hubble server is disabled")
@@ -179,8 +238,10 @@ func (d *Daemon) launchHubble() {
 		logger.WithError(err).Error("Failed to initialize Hubble")
 		return
 	}
-	go d.hubbleObserver.Start()
-	d.monitorAgent.RegisterNewConsumer(monitor.NewConsumer(d.hubbleObserver))
+	go d.hubbleObserver.Start(ctx)
+
+	newMonitorConsumer := monitor.NewConsumer(d.hubbleObserver)
+	d.monitorAgent.RegisterNewConsumer(newMonitorConsumer)
 
 	// configure a local hubble instance that serves more gRPC services
 	sockPath := "unix://" + option.Config.HubbleSocketPath
@@ -214,6 +275,11 @@ func (d *Daemon) launchHubble() {
 			return
 		}
 		localSrvOpts = append(localSrvOpts, serveroption.WithRecorderService(svc))
+		go func() {
+			<-ctx.Done()
+			d.monitorAgent.RemoveConsumer(dispatch)
+			d.syncCancelHubble <- struct{}{}
+		}()
 	}
 
 	localSrv, err := server.NewServer(logger, localSrvOpts...)
@@ -228,9 +294,11 @@ func (d *Daemon) launchHubble() {
 		}
 	}()
 	go func() {
-		<-d.ctx.Done()
+		<-ctx.Done()
 		localSrv.Stop()
 		peerSvc.Close()
+		d.monitorAgent.RemoveConsumer(newMonitorConsumer)
+		d.syncCancelHubble <- struct{}{}
 	}()
 
 	// configure another hubble instance that serve fewer gRPC services
@@ -267,7 +335,7 @@ func (d *Daemon) launchHubble() {
 				case tlsServerConfig = <-tlsServerConfigChan:
 				case <-waitingMsgTimeout:
 					logger.Info("Waiting for Hubble server TLS certificate and key files to be created")
-				case <-d.ctx.Done():
+				case <-ctx.Done():
 					return
 				}
 			}
@@ -294,11 +362,12 @@ func (d *Daemon) launchHubble() {
 		}()
 
 		go func() {
-			<-d.ctx.Done()
+			<-ctx.Done()
 			srv.Stop()
 			if tlsServerConfig != nil {
 				tlsServerConfig.Stop()
 			}
+			d.syncCancelHubble <- struct{}{}
 		}()
 	}
 }

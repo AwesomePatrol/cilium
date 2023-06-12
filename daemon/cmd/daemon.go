@@ -181,6 +181,8 @@ type Daemon struct {
 
 	linkCache      *link.LinkCache
 	hubbleObserver *observer.LocalObserverServer
+	cancelHubble   context.CancelFunc
+	syncCancelHubble chan struct{}
 
 	// endpointCreations is a map of all currently ongoing endpoint
 	// creation events

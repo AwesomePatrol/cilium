@@ -1845,6 +1845,7 @@ func runDaemon(d *Daemon, restoredEndpoints *endpointRestoreState, cleaner *daem
 	bootstrapStats.overall.End(true)
 	bootstrapStats.updateMetrics()
 	go d.launchHubble()
+	go d.watchHubbleConfig()
 
 	err = option.Config.StoreInFile(option.Config.StateDir)
 	if err != nil {
