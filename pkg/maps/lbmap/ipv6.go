@@ -347,7 +347,8 @@ type Backend6ValueV3 struct {
 	Proto     u8proto.U8proto `align:"proto"`
 	Flags     uint8           `align:"flags"`
 	ClusterID uint8           `align:"cluster_id"`
-	Pad       pad3uint8       `align:"pad"`
+	Zone      uint8           `align:"zone"`
+	Pad       pad2uint8       `align:"pad"`
 }
 
 func NewBackend6ValueV3(addrCluster cmtypes.AddrCluster, port uint16, proto u8proto.U8proto, state loadbalancer.BackendState) (*Backend6ValueV3, error) {
