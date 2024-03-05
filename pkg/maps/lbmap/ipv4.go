@@ -5,6 +5,7 @@ package lbmap
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
 	"unsafe"
 
@@ -37,6 +38,8 @@ const (
 	Backend4MapV3Name = "cilium_lb4_backends_v3"
 	// RevNat4MapName is the name of the IPv4 LB reverse NAT BPF map.
 	RevNat4MapName = "cilium_lb4_reverse_nat"
+
+	LoadReporting4MapName = "cilium_lb4_lrs"
 )
 
 var (
@@ -56,6 +59,8 @@ var (
 	Backend4MapV3 *bpf.Map
 	// RevNat4Map is the IPv4 LB reverse NAT BPF map.
 	RevNat4Map *bpf.Map
+
+	LoadReporting4Map *bpf.Map
 )
 
 // initSVC constructs the IPv4 & IPv6 LB BPF maps used for Services. The maps
@@ -122,6 +127,16 @@ func initSVC(params InitParams) {
 			bpf.ConvertKeyValue,
 		).WithCache().WithPressureMetric().
 			WithEvents(option.Config.GetEventBufferConfig(RevNat4MapName))
+		LoadReporting4Map = bpf.NewMap(LoadReporting4MapName,
+			bpf.MapTypeLRUHash,
+			&LoadReportKey4{},
+			int(unsafe.Sizeof(LoadReportKey4{})),
+			&LoadReportValue4{},
+			int(unsafe.Sizeof(LoadReportValue4{})),
+			ServiceMapMaxEntries,
+			0, 0,
+			bpf.ConvertKeyValue,
+		)
 	}
 
 	if params.IPv6 {
@@ -498,7 +513,7 @@ type Backend4ValueV3 struct {
 	Pad       pad2uint8       `align:"pad"`
 }
 
-func NewBackend4ValueV3(addrCluster cmtypes.AddrCluster, port uint16, proto u8proto.U8proto, state loadbalancer.BackendState) (*Backend4ValueV3, error) {
+func NewBackend4ValueV3(addrCluster cmtypes.AddrCluster, port uint16, proto u8proto.U8proto, state loadbalancer.BackendState, zone uint8) (*Backend4ValueV3, error) {
 	addr := addrCluster.Addr()
 	if !addr.Is4() {
 		return nil, fmt.Errorf("Not an IPv4 address")
@@ -516,6 +531,7 @@ func NewBackend4ValueV3(addrCluster cmtypes.AddrCluster, port uint16, proto u8pr
 		Proto:     proto,
 		Flags:     flags,
 		ClusterID: uint8(clusterID),
+		Zone:      zone,
 	}
 
 	ip4Array := addr.As4()
@@ -558,7 +574,8 @@ type Backend4V3 struct {
 
 func NewBackend4V3(id loadbalancer.BackendID, addrCluster cmtypes.AddrCluster, port uint16,
 	proto u8proto.U8proto, state loadbalancer.BackendState) (*Backend4V3, error) {
-	val, err := NewBackend4ValueV3(addrCluster, port, proto, state)
+	zone := rand.Intn(255)
+	val, err := NewBackend4ValueV3(addrCluster, port, proto, state, uint8(zone))
 	if err != nil {
 		return nil, err
 	}

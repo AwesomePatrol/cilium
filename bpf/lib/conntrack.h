@@ -16,6 +16,7 @@
 #include "dbg.h"
 #include "l4.h"
 #include "signal.h"
+#include "lb_maps.h"
 
 enum {
 	ACTION_UNSPEC,
@@ -249,6 +250,11 @@ static __always_inline __u8 __ct_lookup(const void *map, struct __ctx_buff *ctx,
 			}
 
 			*monitor = TRACE_PAYLOAD_LEN;
+#ifdef ENABLE_IPV4
+// TODO(amistewicz): Make it IP version agnostic
+			if (dir == CT_SERVICE)
+				_lb4_lrs_conn_closed(ctx, tuple, entry->backend_id);
+#endif
 			if (ct_entry_alive(entry))
 				break;
 			__ct_update_timeout(entry, bpf_sec_to_mono(CT_CLOSE_TIMEOUT),

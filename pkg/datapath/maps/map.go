@@ -164,6 +164,7 @@ func (ms *MapSweeper) RemoveDisabledMaps() {
 			lbmap.Affinity4MapName,
 			lbmap.SourceRange4MapName,
 			lbmap.HealthProbe4MapName,
+			lbmap.LoadReporting4MapName,
 			ipmasq.MapName,
 			cidrmap.MapName + "v4_dyn",
 			cidrmap.MapName + "v4_fix",

@@ -960,6 +960,17 @@ struct lb4_reverse_nat {
 	__be16 port;
 } __packed;
 
+struct lb4_lrs_key {
+	struct lb4_key svc;
+	__u8 zone;
+	__u8 pad[3];
+};
+
+struct lb4_lrs_value {
+	__u32 opened;
+	__u32 closed;
+};
+
 struct ipv4_revnat_tuple {
 	__sock_cookie cookie;
 	__be32 address;

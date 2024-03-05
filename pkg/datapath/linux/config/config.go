@@ -320,6 +320,7 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 			if option.Config.EnableHealthDatapath {
 				cDefinesMap["LB4_HEALTH_MAP"] = lbmap.HealthProbe4MapName
 			}
+			cDefinesMap["LB4_LRS_MAP"] = lbmap.LoadReporting4MapName
 		}
 		if option.Config.EnableIPv6 {
 			cDefinesMap["NODEPORT_NEIGH6"] = neighborsmap.Map6Name

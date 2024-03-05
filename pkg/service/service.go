@@ -431,6 +431,7 @@ func (s *Service) populateBackendMapV3FromV2(ipv4, ipv6 bool) error {
 					v1BackendVal.Port,
 					v1BackendVal.Proto,
 					lb.GetBackendStateFromFlags(v1BackendVal.Flags),
+					0,
 				)
 				if err != nil {
 					log.WithError(err).WithField(logfields.BPFMapName, v3Map.Name()).Debug("Error creating map value")
@@ -513,9 +514,9 @@ func (s *Service) InitMaps(ipv6, ipv4, sockMaps, restore bool) error {
 		v2BackendMapExistsV6 = lbmap.Backend6MapV2.Open() == nil
 	}
 	if ipv4 {
-		toOpen = append(toOpen, lbmap.Service4MapV2, lbmap.Backend4MapV3, lbmap.RevNat4Map)
+		toOpen = append(toOpen, lbmap.Service4MapV2, lbmap.Backend4MapV3, lbmap.RevNat4Map, lbmap.LoadReporting4Map)
 		if !restore {
-			toDelete = append(toDelete, lbmap.Service4MapV2, lbmap.Backend4MapV3, lbmap.RevNat4Map)
+			toDelete = append(toDelete, lbmap.Service4MapV2, lbmap.Backend4MapV3, lbmap.RevNat4Map, lbmap.LoadReporting4Map)
 		}
 		if sockMaps {
 			if err := lbmap.CreateSockRevNat4Map(); err != nil {
