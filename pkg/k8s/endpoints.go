@@ -91,6 +91,7 @@ type Backend struct {
 	Terminating   bool
 	HintsForZones []string
 	Preferred     bool
+	Zone          string
 }
 
 // String returns the string representation of an endpoints resource, with
@@ -103,7 +104,11 @@ func (e *Endpoints) String() string {
 	backends := []string{}
 	for addrCluster, be := range e.Backends {
 		for _, port := range be.Ports {
-			backends = append(backends, fmt.Sprintf("%s/%s", net.JoinHostPort(addrCluster.Addr().String(), strconv.Itoa(int(port.Port))), port.Protocol))
+			if be.Zone != "" {
+				backends = append(backends, fmt.Sprintf("%s/%s[%s]", net.JoinHostPort(addrCluster.Addr().String(), strconv.Itoa(int(port.Port))), port.Protocol, be.Zone))
+			} else {
+				backends = append(backends, fmt.Sprintf("%s/%s", net.JoinHostPort(addrCluster.Addr().String(), strconv.Itoa(int(port.Port))), port.Protocol))
+			}
 		}
 	}
 
@@ -240,6 +245,9 @@ func ParseEndpointSliceV1Beta1(ep *slim_discovery_v1beta1.EndpointSlice) (Endpoi
 						metrics.TerminatingEndpointsEvents.Inc()
 					}
 				}
+				if zoneName, ok := sub.Topology["topology.kubernetes.io/zone"]; ok {
+					backend.Zone = zoneName
+				}
 			}
 
 			for _, port := range ep.Ports {
@@ -344,6 +352,13 @@ func ParseEndpointSliceV1(ep *slim_discovery_v1.EndpointSlice) (EndpointSliceID,
 				} else {
 					if nodeName, ok := sub.DeprecatedTopology["kubernetes.io/hostname"]; ok {
 						backend.NodeName = nodeName
+					}
+				}
+				if sub.Zone != nil {
+					backend.Zone = *sub.Zone
+				} else {
+					if zoneName, ok := sub.DeprecatedTopology["topology.kubernetes.io/zone"]; ok {
+						backend.Zone = zoneName
 					}
 				}
 				// If is not ready check if is serving and terminating
