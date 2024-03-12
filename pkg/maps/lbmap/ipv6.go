@@ -325,6 +325,7 @@ func (b *Backend6Value) GetIPCluster() cmtypes.AddrCluster {
 }
 func (b *Backend6Value) GetPort() uint16 { return b.Port }
 func (b *Backend6Value) GetFlags() uint8 { return b.Flags }
+func (b *Backend6Value) GetZone() uint8  { return 0 }
 
 func (v *Backend6Value) ToNetwork() BackendValue {
 	n := *v
@@ -390,6 +391,7 @@ func (b *Backend6ValueV3) GetIPCluster() cmtypes.AddrCluster {
 }
 func (b *Backend6ValueV3) GetPort() uint16 { return b.Port }
 func (b *Backend6ValueV3) GetFlags() uint8 { return b.Flags }
+func (b *Backend6ValueV3) GetZone() uint8  { return 0 }
 
 func (v *Backend6ValueV3) ToNetwork() BackendValue {
 	n := *v

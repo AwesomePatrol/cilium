@@ -5,7 +5,6 @@ package lbmap
 
 import (
 	"fmt"
-	"math/rand"
 	"net"
 	"unsafe"
 
@@ -487,6 +486,7 @@ func (b *Backend4Value) GetIPCluster() cmtypes.AddrCluster {
 }
 func (b *Backend4Value) GetPort() uint16 { return b.Port }
 func (b *Backend4Value) GetFlags() uint8 { return b.Flags }
+func (b *Backend4Value) GetZone() uint8  { return 0 }
 
 func (v *Backend4Value) ToNetwork() BackendValue {
 	n := *v
@@ -553,6 +553,7 @@ func (b *Backend4ValueV3) GetIPCluster() cmtypes.AddrCluster {
 }
 func (b *Backend4ValueV3) GetPort() uint16 { return b.Port }
 func (b *Backend4ValueV3) GetFlags() uint8 { return b.Flags }
+func (b *Backend4ValueV3) GetZone() uint8  { return b.Zone }
 
 func (v *Backend4ValueV3) ToNetwork() BackendValue {
 	n := *v
@@ -573,9 +574,8 @@ type Backend4V3 struct {
 }
 
 func NewBackend4V3(id loadbalancer.BackendID, addrCluster cmtypes.AddrCluster, port uint16,
-	proto u8proto.U8proto, state loadbalancer.BackendState) (*Backend4V3, error) {
-	zone := rand.Intn(255)
-	val, err := NewBackend4ValueV3(addrCluster, port, proto, state, uint8(zone))
+	proto u8proto.U8proto, state loadbalancer.BackendState, zone uint8) (*Backend4V3, error) {
+	val, err := NewBackend4ValueV3(addrCluster, port, proto, state, zone)
 	if err != nil {
 		return nil, err
 	}

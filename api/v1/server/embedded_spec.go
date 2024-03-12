@@ -1722,6 +1722,10 @@ func init() {
           "type": "integer",
           "format": "uint16",
           "x-nullable": true
+        },
+        "zone": {
+          "description": "Optional name of the zone in which this backend runs",
+          "type": "string"
         }
       }
     },
@@ -6579,6 +6583,10 @@ func init() {
           "type": "integer",
           "format": "uint16",
           "x-nullable": true
+        },
+        "zone": {
+          "description": "Optional name of the zone in which this backend runs",
+          "type": "string"
         }
       }
     },
