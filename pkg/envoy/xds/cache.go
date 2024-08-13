@@ -215,6 +215,9 @@ func (c *Cache) GetResources(typeURL string, lastVersion uint64, nodeIP string, 
 		res.Resources = make([]proto.Message, 0, len(c.resources))
 		cacheLog.Debugf("no resource names requested, returning all %d resources", len(c.resources))
 		for k, v := range c.resources {
+			if k.typeURL != typeURL {
+				continue
+			}
 			res.ResourceNames = append(res.ResourceNames, k.resourceName)
 			res.Resources = append(res.Resources, v.resource)
 		}
