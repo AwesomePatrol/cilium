@@ -275,7 +275,7 @@ func (c *XDSClient[ReqT, RespT]) loop(ctx context.Context, errCh chan error, tra
 			}
 			err := c.handleObserveRequest(obsReq, trans)
 			if err != nil {
-				log.Error("Stream/Delta send", logfields.Error, err)
+				log.Error("Send", logfields.Error, err)
 				errCh <- err
 				backoff.Wait(ctx)
 			}
@@ -283,8 +283,13 @@ func (c *XDSClient[ReqT, RespT]) loop(ctx context.Context, errCh chan error, tra
 			if !ok {
 				return
 			}
-			log.Debug("Stream receive", "resp", resp)
-			err := c.handleResponseQueue(ctx, trans, resp)
+			log.Debug("Receive", "resp", resp)
+			var err error
+			if c.opts.UseSOTW {
+				err = c.handleResponseQueue(trans, resp)
+			} else {
+				err = c.handleDeltaResponseQueue(trans, resp)
+			}
 			if err != nil {
 				log.Error("Failed to handle response", logfields.Error, err)
 				errCh <- err
@@ -315,7 +320,6 @@ func (c *XDSClient[ReqT, RespT]) handleObserveRequest(obsReq *observeRequest, tr
 }
 
 func (c *XDSClient[ReqT, RespT]) handleResponseQueue(
-	ctx context.Context,
 	trans transport[ReqT, RespT],
 	resp RespT) error {
 
@@ -336,46 +340,24 @@ func (c *XDSClient[ReqT, RespT]) handleResponseQueue(
 }
 
 func (c *XDSClient[ReqT, RespT]) handleDeltaResponseQueue(
-	ctx context.Context,
-	delta discoverypb.AggregatedDiscoveryService_DeltaAggregatedResourcesClient,
-	resp *discoverypb.DeltaDiscoveryResponse,
+	trans transport[ReqT, RespT],
+	resp RespT,
 ) error {
-	upsertedResources, err := c.handleDeltaResponse(resp)
+	upsertedResources, err := c.helper.resp2resources(resp)
 	if err != nil {
 		return fmt.Errorf("handle response: %w", err)
 	}
 	typeUrl := resp.GetTypeUrl()
-	respDelRes := resp.GetRemovedResourceNames()
-	deletedResources := make([]string, 0, len(respDelRes))
-	for _, res := range respDelRes {
-		deletedResources = append(deletedResources, res.GetName())
-	}
+	deletedResources := c.helper.resp2deleted(resp)
 	c.log.Debug("cache TX", "typeUrl", typeUrl, "upserted", upsertedResources, "deleted", deletedResources)
 	ver, updated, _ := c.cache.TX(typeUrl, upsertedResources, deletedResources)
 	c.log.Debug("cache TX", "typeUrl", typeUrl, "ver", ver, "updated", updated)
-	err = c.sendDeltaACK(ctx, delta, resp)
+	req := c.helper.resp2ack(resp, nil)
+	err = trans.Send(req)
 	if err != nil {
-		return fmt.Errorf("ACK not send: %w", err)
+		return fmt.Errorf("ACK not sent: %w", err)
 	}
 	return nil
-}
-
-// nameToResource maps a resource name to a proto representation of the resource.
-type nameToResource map[string]proto.Message
-
-func (c *XDSClient[ReqT, RespT]) handleDeltaResponse(resp *discoverypb.DeltaDiscoveryResponse) (nameToResource, error) {
-	var errs error
-	ret := make(nameToResource, len(resp.GetResources()))
-	for _, res := range resp.GetResources() {
-		name := res.GetName()
-		msg, _, err := parseResource(resp.GetTypeUrl(), res.GetResource())
-		if err != nil {
-			errs = errors.Join(errs, err)
-			continue
-		}
-		ret[name] = msg
-	}
-	return ret, errs
 }
 
 func (c *XDSClient[ReqT, RespT]) upsertAndDeleteMissing(typeUrl string, upsertedResources nameToResource) error {
@@ -417,52 +399,6 @@ func (c *XDSClient[ReqT, RespT]) deletedResources(typeUrl string, curr nameToRes
 		deletedResources = append(deletedResources, name)
 	}
 	return deletedResources, nil
-}
-
-func (c *XDSClient[ReqT, RespT]) sendACK(
-	ctx context.Context,
-	stream discoverypb.AggregatedDiscoveryService_StreamAggregatedResourcesClient,
-	resp *discoverypb.DiscoveryResponse,
-	upsertedResources nameToResource) error {
-	resourceNames := slices.Collect(maps.Keys(upsertedResources))
-	req := &discoverypb.DiscoveryRequest{
-		Node:          c.node,
-		VersionInfo:   resp.GetVersionInfo(),
-		ResponseNonce: resp.GetNonce(),
-		TypeUrl:       resp.GetTypeUrl(),
-		ResourceNames: resourceNames,
-	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		c.log.Debug("Send ACK", "req", req)
-		if err := stream.Send(req); err != nil {
-			return fmt.Errorf("will not ACK: send: %w", err)
-		}
-		return nil
-	}
-}
-
-func (c *XDSClient[ReqT, RespT]) sendDeltaACK(
-	ctx context.Context,
-	delta discoverypb.AggregatedDiscoveryService_DeltaAggregatedResourcesClient,
-	resp *discoverypb.DeltaDiscoveryResponse) error {
-	req := &discoverypb.DeltaDiscoveryRequest{
-		Node:          c.node,
-		ResponseNonce: resp.GetNonce(),
-		TypeUrl:       resp.GetTypeUrl(),
-	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		c.log.Debug("Send ACK", "req", req)
-		if err := delta.Send(req); err != nil {
-			return fmt.Errorf("will not ACK: send: %w", err)
-		}
-		return nil
-	}
 }
 
 func (c *XDSClient[ReqT, RespT]) AddResourceWatcher(typeUrl string, cb WatcherCallback) uint64 {

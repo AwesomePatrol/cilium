@@ -13,6 +13,7 @@ import (
 	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
 )
 
 type RequestCons interface {
@@ -24,6 +25,9 @@ type ResponseCons interface {
 	GetTypeUrl() string
 }
 
+// nameToResource maps a resource name to a proto representation of the resource.
+type nameToResource map[string]proto.Message
+
 type Helper[ReqT RequestCons, RespT ResponseCons] interface {
 	getTransport(ctx context.Context, client discoverypb.AggregatedDiscoveryServiceClient) (transport[ReqT, RespT], error)
 	resp2ack(RespT, []string) ReqT
@@ -31,6 +35,7 @@ type Helper[ReqT RequestCons, RespT ResponseCons] interface {
 	prepareObsReq(obsReq *observeRequest) (ReqT, error)
 	resp2resources(RespT) (nameToResource, error)
 	resp2nack(resp RespT, detail error) ReqT
+	resp2deleted(RespT) []string
 }
 
 type sotwHelper struct {
@@ -109,6 +114,10 @@ func (sotw *sotwHelper) resp2nack(resp *discoverypb.DiscoveryResponse, detail er
 	}
 }
 
+func (sotw *sotwHelper) resp2deleted(resp *discoverypb.DiscoveryResponse) []string {
+	return nil
+}
+
 type deltaHelper struct {
 	node *corepb.Node
 }
@@ -128,6 +137,21 @@ func (delta *deltaHelper) prepareObsReq(obsReq *observeRequest) (*discoverypb.De
 	}, nil
 }
 
+func (delta *deltaHelper) resp2resources(resp *discoverypb.DeltaDiscoveryResponse) (nameToResource, error) {
+	var errs error
+	ret := make(nameToResource, len(resp.GetResources()))
+	for _, res := range resp.GetResources() {
+		name := res.GetName()
+		msg, _, err := parseResource(resp.GetTypeUrl(), res.GetResource())
+		if err != nil {
+			errs = errors.Join(errs, err)
+			continue
+		}
+		ret[name] = msg
+	}
+	return ret, errs
+}
+
 func (delta *deltaHelper) resp2nack(resp *discoverypb.DeltaDiscoveryResponse, detail error) *discoverypb.DeltaDiscoveryRequest {
 	return &discoverypb.DeltaDiscoveryRequest{
 		Node:          delta.node,
@@ -138,4 +162,8 @@ func (delta *deltaHelper) resp2nack(resp *discoverypb.DeltaDiscoveryResponse, de
 			Message: detail.Error(),
 		},
 	}
+}
+
+func (delta *deltaHelper) resp2deleted(resp *discoverypb.DeltaDiscoveryResponse) []string {
+	return resp.GetRemovedResources()
 }

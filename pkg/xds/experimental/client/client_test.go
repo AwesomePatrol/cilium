@@ -32,6 +32,7 @@ import (
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/cilium/cilium/pkg/envoy"
+	"github.com/cilium/cilium/pkg/envoy/xds"
 )
 
 type fakeStream struct {
@@ -77,8 +78,9 @@ func TestSendInitialDiscoveryRequests(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			defer goleak.VerifyNone(t)
 
-			c := NewClient(slog.Default(), testNode(), Defaults)
-			c.opts.UseSOTW = sotw
+			opts := *Defaults
+			opts.UseSOTW = sotw
+			c := NewClient(slog.Default(), testNode(), &opts)
 			ctx, cancel := context.WithCancel(context.TODO())
 			defer cancel()
 			got := []string{}
@@ -107,9 +109,16 @@ func TestSendInitialDiscoveryRequests(t *testing.T) {
 				},
 			}
 
-			err := c.sendInitialDiscoveryRequests(ctx, stream, delta)
-			if err != nil {
-				t.Fatalf("unexpected err = %v", err)
+			if sotw {
+				err := c.(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse]).sendInitialDiscoveryRequests(ctx, stream)
+				if err != nil {
+					t.Fatalf("unexpected err = %v", err)
+				}
+			} else {
+				err := c.(*XDSClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse]).sendInitialDiscoveryRequests(ctx, delta)
+				if err != nil {
+					t.Fatalf("unexpected err = %v", err)
+				}
 			}
 
 			want := Defaults.BootstrapResources
@@ -278,7 +287,7 @@ func TestHandleResponse_StoresInCache(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := NewClient(slog.Default(), testNode(), Defaults)
+			c := NewClient(slog.Default(), testNode(), Defaults).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
 
 			resp := new(discoverypb.DiscoveryResponse)
 			appendResource := func(src proto.Message) {
@@ -301,7 +310,7 @@ func TestHandleResponse_StoresInCache(t *testing.T) {
 				resp.TypeUrl = envoy.EndpointTypeURL
 			}
 
-			curr, err := c.handleResponse(resp)
+			curr, err := c.helper.resp2resources(resp)
 			if err != nil {
 				t.Fatalf("unexpected handleResponse err: %v", err)
 			}
@@ -407,7 +416,7 @@ func TestUpsertAndDeleteMissing_Listeners(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := NewClient(slog.Default(), testNode(), Defaults)
+			c := NewClient(slog.Default(), testNode(), Defaults).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
 
 			handleListenerResponse := func(listeners []*listenerpb.Listener) {
 				resp := new(discoverypb.DiscoveryResponse)
@@ -420,7 +429,7 @@ func TestUpsertAndDeleteMissing_Listeners(t *testing.T) {
 				}
 				resp.TypeUrl = envoy.ListenerTypeURL
 
-				curr, err := c.handleResponse(resp)
+				curr, err := c.helper.resp2resources(resp)
 				if err != nil {
 					t.Fatalf("unexpected handleResponse err: %v", err)
 				}
@@ -521,7 +530,7 @@ func TestUpsertAndDeleteMissing_Endpoints(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := NewClient(slog.Default(), testNode(), Defaults)
+			c := NewClient(slog.Default(), testNode(), Defaults).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
 
 			handleResponse := func(typeUrl string, clusters []*clusterpb.Cluster, endpoints []*endpointpb.ClusterLoadAssignment) {
 				if clusters == nil && endpoints == nil {
@@ -544,7 +553,7 @@ func TestUpsertAndDeleteMissing_Endpoints(t *testing.T) {
 				}
 				resp.TypeUrl = typeUrl
 
-				curr, err := c.handleResponse(resp)
+				curr, err := c.helper.resp2resources(resp)
 				if err != nil {
 					t.Fatalf("unexpected handleResponse err: %v", err)
 				}
@@ -598,7 +607,7 @@ func TestHandleResponse_RejectsMismatchedTypes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := NewClient(slog.Default(), testNode(), Defaults)
+			c := NewClient(slog.Default(), testNode(), Defaults).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
 
 			resp := &discoverypb.DiscoveryResponse{
 				Resources: []*anypb.Any{tc.res},
@@ -608,7 +617,7 @@ func TestHandleResponse_RejectsMismatchedTypes(t *testing.T) {
 				resp.Resources[0].TypeUrl = tc.overrideResType
 			}
 
-			_, err := c.handleResponse(resp)
+			_, err := c.helper.resp2resources(resp)
 			if err != nil {
 				if tc.wantErr == "" {
 					t.Errorf("error occurred when none was expected")
@@ -704,11 +713,19 @@ func TestRunReturnsNonRetriableErrors(t *testing.T) {
 					done := make(chan bool)
 					go func() {
 						defer close(done)
-						gotErr = c.process(ctx, stream, delta)
+						if sotw {
+							gotErr = c.(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse]).process(ctx, stream)
+						} else {
+							gotErr = c.(*XDSClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse]).process(ctx, delta)
+						}
 					}()
 
 					if tc.sendErr != nil {
-						c.observeQueue <- &observeRequest{}
+						if sotw {
+							c.(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse]).observeQueue <- &observeRequest{}
+						} else {
+							c.(*XDSClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse]).observeQueue <- &observeRequest{}
+						}
 						sendCh <- tc.sendErr
 					}
 					if tc.recvErr != nil {
@@ -717,7 +734,11 @@ func TestRunReturnsNonRetriableErrors(t *testing.T) {
 					if tc.retries {
 						// Send non-retriable error to confirm
 						if tc.sendErr != nil {
-							c.observeQueue <- &observeRequest{}
+							if sotw {
+								c.(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse]).observeQueue <- &observeRequest{}
+							} else {
+								c.(*XDSClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse]).observeQueue <- &observeRequest{}
+							}
 							select {
 							case sendCh <- io.EOF:
 							case <-done:
@@ -791,9 +812,10 @@ func TestObserve(t *testing.T) {
 				t.Run(tc.name, func(t *testing.T) {
 					defer goleak.VerifyNone(t)
 
-					c := NewClient(slog.Default(), testNode(), Defaults)
-					c.opts.BootstrapResources = []string{}
-					c.opts.UseSOTW = sotw
+					opts := *Defaults
+					opts.BootstrapResources = []string{}
+					opts.UseSOTW = sotw
+					c := NewClient(slog.Default(), testNode(), &opts)
 					ctx, cancel := context.WithCancel(context.TODO())
 					defer cancel()
 
@@ -822,11 +844,21 @@ func TestObserve(t *testing.T) {
 						},
 					}
 					typeUrl := envoy.ListenerTypeURL
+					var cache *xds.Cache
+					if sotw {
+						cache = c.(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse]).cache
+					} else {
+						cache = c.(*XDSClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse]).cache
+					}
 					for _, rn := range tc.currResourceNames {
-						c.cache.Upsert(typeUrl, rn, &listenerpb.Listener{Name: rn})
+						cache.Upsert(typeUrl, rn, &listenerpb.Listener{Name: rn})
 					}
 
-					go c.process(ctx, stream, delta)
+					if sotw {
+						go c.(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse]).process(ctx, stream)
+					} else {
+						go c.(*XDSClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse]).process(ctx, delta)
+					}
 
 					err := c.Observe(ctx, typeUrl, tc.resourceNames)
 					if err != nil {
@@ -1011,7 +1043,11 @@ func TestAckAndNack(t *testing.T) {
 					done := make(chan bool)
 					go func() {
 						defer close(done)
-						gotErr = c.process(ctx, stream, delta)
+						if sotw {
+							gotErr = c.(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse]).process(ctx, stream)
+						} else {
+							gotErr = c.(*XDSClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse]).process(ctx, delta)
+						}
 					}()
 
 					recvCh <- true
