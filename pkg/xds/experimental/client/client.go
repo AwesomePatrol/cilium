@@ -30,9 +30,17 @@ import (
 
 const logFeatureKey = "feature"
 
+// BaseLayer is the public interface of xDS client.
 type BaseLayer interface {
+	// Observe adds resources of given type url and names to the attention set
+	// of the client.
 	Observe(ctx context.Context, typeUrl string, resourceNames []string) error
+
+	// AddResourceWatcher registers a callback cb that will be invoked every
+	// time a resource with given type url changes.
 	AddResourceWatcher(typeUrl string, cb WatcherCallback) uint64
+
+	// RemoveResourceWatcher deletes callback registered with given id.
 	RemoveResourceWatcher(id uint64)
 }
 

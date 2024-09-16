@@ -11,7 +11,6 @@ import (
 
 // listener is a helper structure for watchers focused on handling a single, registered callback.
 type listener struct {
-	ID      uint64
 	typeUrl string
 	cb      WatcherCallback
 	trigger chan struct{}
@@ -42,9 +41,10 @@ func (l *listener) process() {
 		resVer, err := l.resources.GetResources(l.typeUrl, 0, "", nil)
 		if err != nil {
 			l.log.Error("Failed to fetch resource", "err", err)
-			return
+			continue
 		}
 
+		l.log.Debug("Invoke callback")
 		l.cb(resVer)
 	}
 }

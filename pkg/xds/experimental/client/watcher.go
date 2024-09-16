@@ -31,7 +31,8 @@ func newWatchers(log *slog.Logger, src xds.ObservableResourceSource) *watchers {
 	}
 }
 
-// WatcherCallback will be called when a new version of a resource it was registered on appears.
+// WatcherCallback will be called when a new version of a resource it was
+// registered on appears. res will contain all resources of this type.
 type WatcherCallback func(res *xds.VersionedResources)
 
 // Add registers a callback for a specified typeUrl.
@@ -43,7 +44,6 @@ func (w *watchers) Add(typeUrl string, cb WatcherCallback) uint64 {
 	w.lastID++
 
 	l := &listener{
-		ID:        w.lastID,
 		typeUrl:   typeUrl,
 		cb:        cb,
 		log:       w.log.With("listenerID", w.lastID),
