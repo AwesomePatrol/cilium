@@ -287,7 +287,9 @@ func TestHandleResponse_StoresInCache(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := NewClient(slog.Default(), testNode(), Defaults).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
+			opts := *Defaults
+			opts.UseSOTW = true
+			c := NewClient(slog.Default(), testNode(), &opts).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
 
 			resp := new(discoverypb.DiscoveryResponse)
 			appendResource := func(src proto.Message) {
@@ -416,7 +418,9 @@ func TestUpsertAndDeleteMissing_Listeners(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := NewClient(slog.Default(), testNode(), Defaults).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
+			opts := *Defaults
+			opts.UseSOTW = true
+			c := NewClient(slog.Default(), testNode(), &opts).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
 
 			handleListenerResponse := func(listeners []*listenerpb.Listener) {
 				resp := new(discoverypb.DiscoveryResponse)
@@ -530,7 +534,9 @@ func TestUpsertAndDeleteMissing_Endpoints(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := NewClient(slog.Default(), testNode(), Defaults).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
+			opts := *Defaults
+			opts.UseSOTW = true
+			c := NewClient(slog.Default(), testNode(), &opts).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
 
 			handleResponse := func(typeUrl string, clusters []*clusterpb.Cluster, endpoints []*endpointpb.ClusterLoadAssignment) {
 				if clusters == nil && endpoints == nil {
@@ -607,7 +613,9 @@ func TestHandleResponse_RejectsMismatchedTypes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := NewClient(slog.Default(), testNode(), Defaults).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
+			opts := *Defaults
+			opts.UseSOTW = true
+			c := NewClient(slog.Default(), testNode(), &opts).(*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])
 
 			resp := &discoverypb.DiscoveryResponse{
 				Resources: []*anypb.Any{tc.res},

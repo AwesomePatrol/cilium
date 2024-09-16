@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	corepb "github.com/cilium/proxy/go/envoy/config/core/v3"
 	discoverypb "github.com/cilium/proxy/go/envoy/service/discovery/v3"
@@ -14,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/proto"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 type RequestCons interface {
@@ -32,7 +35,7 @@ type Helper[ReqT RequestCons, RespT ResponseCons] interface {
 	getTransport(ctx context.Context, client discoverypb.AggregatedDiscoveryServiceClient) (transport[ReqT, RespT], error)
 	resp2ack(RespT, []string) ReqT
 	initialReq(typeUrl string) ReqT
-	prepareObsReq(obsReq *observeRequest) (ReqT, error)
+	prepareObsReq(obsReq *observeRequest, curr []string) (ReqT, error)
 	resp2resources(RespT) (nameToResource, error)
 	resp2nack(resp RespT, detail error) ReqT
 	resp2deleted(RespT) []string
@@ -43,6 +46,7 @@ type sotwHelper struct {
 }
 
 var _ Helper[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse] = (*sotwHelper)(nil)
+var _ Helper[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse] = (*deltaHelper)(nil)
 
 func (sotw *sotwHelper) getTransport(ctx context.Context, client discoverypb.AggregatedDiscoveryServiceClient) (transport[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse], error) {
 	return client.StreamAggregatedResources(ctx, grpc.WaitForReady(true))
@@ -65,22 +69,15 @@ func (sotw *sotwHelper) initialReq(typeUrl string) *discoverypb.DiscoveryRequest
 	}
 }
 
-func (sotw *sotwHelper) prepareObsReq(obsReq *observeRequest) (*discoverypb.DiscoveryRequest, error) {
-	// TODO
-	/*
-		curr, err := c.getAllResources(obsReq.typeUrl)
-		if err != nil {
-			return nil, fmt.Errorf("get resources: %w", err)
-		}
-		reqResourceNames := sets.Set[string]{}
-		reqResourceNames.Insert(curr.ResourceNames...)
-		reqResourceNames.Insert(obsReq.resourceNames...)
-	*/
+func (sotw *sotwHelper) prepareObsReq(obsReq *observeRequest, curr []string) (*discoverypb.DiscoveryRequest, error) {
+	reqResourceNames := sets.Set[string]{}
+	reqResourceNames.Insert(curr...)
+	reqResourceNames.Insert(obsReq.resourceNames...)
 
 	return &discoverypb.DiscoveryRequest{
-		Node:    sotw.node,
-		TypeUrl: obsReq.typeUrl,
-		//ResourceNames: slices.Collect(maps.Keys(reqResourceNames)),
+		Node:          sotw.node,
+		TypeUrl:       obsReq.typeUrl,
+		ResourceNames: slices.Collect(maps.Keys(reqResourceNames)),
 	}, nil
 }
 
@@ -122,6 +119,10 @@ type deltaHelper struct {
 	node *corepb.Node
 }
 
+func (delta *deltaHelper) getTransport(ctx context.Context, client discoverypb.AggregatedDiscoveryServiceClient) (transport[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse], error) {
+	return client.DeltaAggregatedResources(ctx, grpc.WaitForReady(true))
+}
+
 func (delta *deltaHelper) initialReq(typeUrl string) *discoverypb.DeltaDiscoveryRequest {
 	return &discoverypb.DeltaDiscoveryRequest{
 		Node:    delta.node,
@@ -129,7 +130,7 @@ func (delta *deltaHelper) initialReq(typeUrl string) *discoverypb.DeltaDiscovery
 	}
 }
 
-func (delta *deltaHelper) prepareObsReq(obsReq *observeRequest) (*discoverypb.DeltaDiscoveryRequest, error) {
+func (delta *deltaHelper) prepareObsReq(obsReq *observeRequest, _ []string) (*discoverypb.DeltaDiscoveryRequest, error) {
 	return &discoverypb.DeltaDiscoveryRequest{
 		Node:                   delta.node,
 		TypeUrl:                obsReq.typeUrl,
@@ -150,6 +151,14 @@ func (delta *deltaHelper) resp2resources(resp *discoverypb.DeltaDiscoveryRespons
 		ret[name] = msg
 	}
 	return ret, errs
+}
+
+func (delta *deltaHelper) resp2ack(resp *discoverypb.DeltaDiscoveryResponse, _ []string) *discoverypb.DeltaDiscoveryRequest {
+	return &discoverypb.DeltaDiscoveryRequest{
+		Node:          delta.node,
+		ResponseNonce: resp.GetNonce(),
+		TypeUrl:       resp.GetTypeUrl(),
+	}
 }
 
 func (delta *deltaHelper) resp2nack(resp *discoverypb.DeltaDiscoveryResponse, detail error) *discoverypb.DeltaDiscoveryRequest {

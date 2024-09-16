@@ -80,7 +80,9 @@ func NewClient(log *slog.Logger, node *corepb.Node, opts *Options) BaseLayerWith
 		c.helper = &sotwHelper{c.node}
 		return c
 	} else {
-		return newClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse](log, node, opts)
+		c := newClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse](log, node, opts)
+		c.helper = &deltaHelper{c.node}
+		return c
 	}
 }
 
@@ -306,7 +308,15 @@ func (c *XDSClient[ReqT, RespT]) loop(ctx context.Context, errCh chan error, tra
 }
 
 func (c *XDSClient[ReqT, RespT]) handleObserveRequest(obsReq *observeRequest, trans transport[ReqT, RespT]) error {
-	req, err := c.helper.prepareObsReq(obsReq)
+	var curr []string
+	if c.opts.UseSOTW {
+		all, err := c.getAllResources(obsReq.typeUrl)
+		if err != nil {
+			return fmt.Errorf("get resources: %w", err)
+		}
+		curr = all.ResourceNames
+	}
+	req, err := c.helper.prepareObsReq(obsReq, curr)
 	if err != nil {
 		c.log.Error("Failed to prepare request",
 			"observe-request", obsReq,
