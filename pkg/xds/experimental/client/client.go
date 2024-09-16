@@ -47,8 +47,7 @@ type BaseLayerWithRun interface {
 }
 
 var _ BaseLayerWithRun = (*XDSClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse])(nil)
-
-//var _ BaseLayerWithRun = (*XDSClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse])(nil)
+var _ BaseLayerWithRun = (*XDSClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse])(nil)
 
 type observeRequest struct {
 	// For example: "type.googleapis.com/envoy.config.listener.v3.Listener"
