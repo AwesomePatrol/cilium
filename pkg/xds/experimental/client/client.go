@@ -56,9 +56,6 @@ type observeRequest struct {
 }
 
 type XDSClient[ReqT RequestCons, RespT ResponseCons] struct {
-	// node is used to identify a client to xDS server.
-	// It is part of every Request sent on a stream.
-	node *corepb.Node
 	log  *slog.Logger
 	opts Options
 
@@ -74,22 +71,24 @@ type XDSClient[ReqT RequestCons, RespT ResponseCons] struct {
 }
 
 func NewClient(log *slog.Logger, node *corepb.Node, opts *Options) BaseLayerWithRun {
+	// n is used to identify a client to xDS server.
+	// It is part of every Request sent on a stream.
+	n := proto.Clone(node).(*corepb.Node)
 	if opts.UseSOTW {
-		c := newClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse](log, node, opts)
-		c.helper = &sotwHelper{c.node}
+		c := newClient[*discoverypb.DiscoveryRequest, *discoverypb.DiscoveryResponse](log, opts)
+		c.helper = &sotwHelper{n}
 		return c
 	} else {
-		c := newClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse](log, node, opts)
-		c.helper = &deltaHelper{c.node}
+		c := newClient[*discoverypb.DeltaDiscoveryRequest, *discoverypb.DeltaDiscoveryResponse](log, opts)
+		c.helper = &deltaHelper{n}
 		return c
 	}
 }
 
-func newClient[ReqT RequestCons, RespT ResponseCons](log *slog.Logger, node *corepb.Node, opts *Options) *XDSClient[ReqT, RespT] {
+func newClient[ReqT RequestCons, RespT ResponseCons](log *slog.Logger, opts *Options) *XDSClient[ReqT, RespT] {
 	cache := xds.NewCache()
 
 	return &XDSClient[ReqT, RespT]{
-		node:          proto.Clone(node).(*corepb.Node),
 		log:           log,
 		opts:          *opts,
 		observeQueue:  make(chan *observeRequest, 1),
